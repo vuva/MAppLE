@@ -2,9 +2,9 @@ package quic
 
 import (
 	//	"bytes"
-	"github.com/lucas-clemente/quic-go/internal/protocol"
+	//"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/utils"
-	"io"
+	//"io"
 	"log"
 )
 

@@ -730,7 +730,7 @@ func (s *session) handlePacketImpl(p *receivedPacket) error {
 	}
 
 	// tell the redundancy controller about the path's properties
-	if pth.pathID != protocol.InitialPathID && pth.rttStats.SmoothedRTT().Microseconds() > 0 {
+	if pth.pathID != protocol.InitialPathID && pth.rttStats.SmoothedRTT().Nanoseconds() > 0 {
 		oSender := s.pathManager.oliaSenders[pth.pathID]
 		s.redundancyController.InsertMeasurement(
 			pth.pathID,

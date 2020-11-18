@@ -368,7 +368,7 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 			// utils.Debugf("PUT: %d \n", seq)
 
 		}
-		utils.Debugf("Done after %dms", run_time_duration.Milliseconds())
+		utils.Debugf("Done after %dms", run_time_duration.Nanoseconds()/1000000)
 		utils.Debugf("Generate total: %d messages, %d bytes", gen_counter, gen_bytes)
 		gen_finished = true
 		generatingDone <- true
