@@ -34,7 +34,7 @@ import (
 	// "github.com/lucas-clemente/quic-go/h2quic"
 	// "github.com/lucas-clemente/quic-go/internal/testdata"
 	// "github.com/lucas-clemente/quic-go/internal/protocol"
-	"github.com/lucas-clemente/quic-go/internal/protocol"
+	quic_protocol "github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/utils"
 
 	// "quic-go"
@@ -46,7 +46,7 @@ type binds []string
 
 type ServerLogRecord struct {
 	timestamp   uint
-	messageSize protocol.ByteCount
+	messageSize quic_protocol.ByteCount
 }
 
 type ServerLog struct {
@@ -73,6 +73,8 @@ type TrafficGenConfig struct {
 	CongestionControl string
 	IsBlockCall       bool
 	IsReverse         bool
+	useFEC            bool
+	multiplexer       string
 }
 
 func (b binds) String() string {
@@ -179,7 +181,7 @@ func receiveTCP(socket net.Conn) {
 				seq_no_int := bytesToInt(seq_no)
 				timeStamps[seq_no_int] = ServerLogRecord{
 					timestamp:   uint(time.Now().UnixNano()),
-					messageSize: protocol.ByteCount(eoc_byte_index + 4),
+					messageSize: quic_protocol.ByteCount(eoc_byte_index + 4),
 				}
 				//				buffer.Write(message[eoc_byte_index:length])
 
@@ -241,8 +243,7 @@ func startServerMode(config *TrafficGenConfig) {
 			//		go manager.send(client)
 		}
 	case "quic":
-
-		startQUICServer(config.Address, config.IsMultipath, config.IsMultiStream, config.Sched)
+		startQUICServer(config.Address, config.IsMultipath, config.IsMultiStream, config.useFEC, config.Sched)
 
 	}
 
@@ -258,7 +259,7 @@ func startClientMode(config *TrafficGenConfig) {
 
 	if config.Protocol == "quic" {
 		addresses := []string{config.Address}
-		quic_session, err = startQUICSession(addresses, config.Sched, config.IsMultipath)
+		quic_session, err = startQUICSession(addresses, config.Sched, config.IsMultipath, config.useFEC)
 		if err != nil {
 			panic(err)
 		}
@@ -351,7 +352,7 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 			// Get time at the moment message generated
 			timeStamps[seq] = ServerLogRecord{
 				timestamp:   uint(time.Now().UnixNano()),
-				messageSize: protocol.ByteCount(len(message)),
+				messageSize: quic_protocol.ByteCount(len(message)),
 			}
 			// utils.Debugf("Messages in queue: %d \n", len(send_queue))
 
@@ -376,7 +377,7 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 
 	go func() {
 		sent_counter := 0
-		var current_stream quic.Stream
+		//var current_stream quic.Stream
 
 		for !gen_finished {
 			time.Sleep(time.Nanosecond)
@@ -397,25 +398,28 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 
 			utils.Debugf("Message in queue: %d at %d \n", send_queue.mess_list.Len(), uint(time.Now().UnixNano()))
 			if config.Protocol == "quic" {
-				if config.IsMultiStream {
-
-					go startQUICClientStream(quic_session, message)
-				} else {
-					if current_stream == nil || current_stream.StreamID() == 3 || current_stream.StreamID() == 1 {
-						current_stream, err = quic_session.OpenStreamSync()
-						if err != nil {
-							utils.Debugf("Error OpenStreamSync:", err)
-							return
-						}
-
-						defer current_stream.Close()
-					}
-					utils.Debugf("OpenStream count: %d, message %d", quic_session.GetOpenStreamNo(), bytesToInt(message[0:4]))
-					// beforeWrite := time.Now()
-					current_stream.Write(message)
-					// utils.Debugf("StreamID: %d write %d", current_stream.StreamID(), time.Now().Sub(beforeWrite).Nanoseconds())
-
-				}
+				go quic.MultiplexData(quic_session, config.multiplexer, message)
+				//go quic.TestMultiplexer(quic_session, message)
+				/*
+				 *                                if config.IsMultiStream {
+				 *                                        go startQUICClientStream(quic_session, message)
+				 *                                } else {
+				 *                                        if current_stream == nil || current_stream.StreamID() == 3 || current_stream.StreamID() == 1 {
+				 *                                                current_stream, err = quic_session.OpenStreamSync()
+				 *                                                if err != nil {
+				 *                                                        utils.Debugf("Error OpenStreamSync:", err)
+				 *                                                        return
+				 *                                                }
+				 *
+				 *                                                defer current_stream.Close()
+				 *                                        }
+				 *                                        utils.Debugf("OpenStream count: %d, message %d", quic_session.GetOpenStreamNo(), bytesToInt(message[0:4]))
+				 *                                         beforeWrite := time.Now()
+				 *                                        current_stream.Write(message)
+				 *                                         utils.Debugf("StreamID: %d write %d", current_stream.StreamID(), time.Now().Sub(beforeWrite).Nanoseconds())
+				 *
+				 *                                }
+				 */
 
 			} else if config.Protocol == "tcp" {
 				go connection.Write(message)
@@ -474,15 +478,17 @@ func startQUICClientStream(quic_session quic.Session, message []byte) {
 	quic_session.RemoveStream(stream.StreamID())
 }
 
-func startQUICServer(addr string, isMultipath bool, isMultiStream bool, scheduler string) error {
+func startQUICServer(addr string, isMultipath bool, isMultiStream bool, useFEC bool, scheduler string) error {
 	var maxPathID uint8
 	if isMultipath {
 		maxPathID = 2
 	}
 
 	listener, err := quic.ListenAddr(addr, generateTLSConfig(), &quic.Config{
-		MaxPathID:            maxPathID,
-		SchedulingSchemeName: scheduler,
+		MaxPathID:                   maxPathID,
+		SchedulingSchemeName:        scheduler,
+		ProtectReliableStreamFrames: useFEC,
+		//SchedulingScheme:     schedNameConvert("quic", scheduler),
 		// MaxReceiveStreamFlowControlWindow:     uint64(protocol.ByteCount(math.Floor(100 * MB))),
 		// MaxReceiveConnectionFlowControlWindow: uint64(protocol.ByteCount(math.Floor(100 * MB))),
 	})
@@ -514,7 +520,7 @@ func startQUICServer(addr string, isMultipath bool, isMultiStream bool, schedule
 	}
 
 	writeToFile(LOG_PREFIX+"server-timestamp.log", serverlog.data)
-	fmt.Printf("\nFinish receive: %d messages \n", len(serverlog.data))
+	utils.Debugf("\nFinish receive: %d messages \n", len(serverlog.data))
 	return err
 }
 
@@ -557,7 +563,7 @@ messageLoop:
 					serverlog.lock.Lock()
 					serverlog.data[seq_no_int] = ServerLogRecord{
 						timestamp:   uint(time.Now().UnixNano()),
-						messageSize: protocol.ByteCount(eoc_byte_index + 4),
+						messageSize: quic_protocol.ByteCount(eoc_byte_index + 4),
 					}
 					serverlog.lock.Unlock()
 					if isMultistream {
@@ -580,19 +586,21 @@ messageLoop:
 			break messageLoop
 		}
 	}
-	sess.RemoveStream(stream.StreamID())
-	utils.Debugf("\n Finish Stream: %d at %d \n", stream.StreamID(), time.Now().UnixNano())
+	//sess.RemoveStream(stream.StreamID())
+	utils.Debugf("\n Finish receive a message on  Stream: %d at %d \n", stream.StreamID(), time.Now().UnixNano())
 }
 
-func startQUICSession(urls []string, scheduler string, isMultipath bool) (sess quic.Session, err error) {
+func startQUICSession(urls []string, scheduler string, isMultipath bool, useFEC bool) (sess quic.Session, err error) {
 	var maxPathID uint8
 	if isMultipath {
 		maxPathID = 2
 	}
 
 	session, err := quic.DialAddr(urls[0], &tls.Config{InsecureSkipVerify: true}, &quic.Config{
-		MaxPathID:            maxPathID,
-		SchedulingSchemeName: scheduler,
+		MaxPathID:                   maxPathID,
+		SchedulingSchemeName:        scheduler,
+		ProtectReliableStreamFrames: useFEC,
+		//SchedulingScheme:     schedNameConvert("quic", scheduler),
 		// MaxReceiveStreamFlowControlWindow:     uint64(protocol.ByteCount(math.Floor(100 * MB))),
 		// MaxReceiveConnectionFlowControlWindow: uint64(protocol.ByteCount(math.Floor(100 * MB))),
 	})
@@ -734,30 +742,35 @@ func generateTLSConfig() *tls.Config {
 	return &tls.Config{Certificates: []tls.Certificate{tlsCert}}
 }
 
-func schedNameConvert(protocol string, sched_name string) string {
-	converted_name := sched_name
-	if protocol == "quic" {
-		switch sched_name {
-		case "lrtt":
-			converted_name = "lowRTT"
-		case "rr":
-			converted_name = "RR"
-		case "opp":
-			converted_name = "oppRedundant"
-
-		case "nt":
-			converted_name = "nineTails"
-		case "re":
-			converted_name = "redundant"
-		case "sp":
-			converted_name = "lowRTT"
-		default:
-			panic("no scheduler found")
-		}
-	}
-
-	return converted_name
-}
+/*
+ *func schedNameConvert(protocol string, sched_name string) quic_protocol.SchedulingSchemeID {
+ *        var scheduler_id quic_protocol.SchedulingSchemeID
+ *
+ *        if protocol == "quic" {
+ *                switch sched_name {
+ *                        case "lowrtt":
+ *                                scheduler_id = quic_protocol.SchedLowLatency
+ *                        case "rr":
+ *                                scheduler_id = quic_protocol.SchedRR
+ *                        case "opp":
+ *                                scheduler_id = quic_protocol.SchedSingle
+ *
+ *                        case "nt":
+ *                                scheduler_id = quic_protocol.SchedSingle
+ *
+ *                        case "re":
+ *                                scheduler_id = quic_protocol.SchedSingle
+ *
+ *                        case "sp":
+ *                                scheduler_id = quic_protocol.SchedSingle
+ *                        default:
+ *                                panic("no scheduler found")
+ *                }
+ *        }
+ *
+ *        return scheduler_id
+ *}
+ */
 
 func main() {
 	flagMode := flag.String("mode", "server", "start in client or server mode")
@@ -773,11 +786,15 @@ func main() {
 	flagLog := flag.String("log", "", "Log folder")
 	flagMultipath := flag.Bool("m", false, "Enable multipath")
 	flagMultiStream := flag.Bool("mstr", false, "Enable multistream")
-	flagSched := flag.String("sched", "lrtt", "Scheduler")
+	flagSched := flag.String("sched", "ll", "Scheduler")
 	flagDebug := flag.Bool("v", false, "Debug mode")
 	flagCong := flag.String("cc", "olia", "Congestion control")
 	flagBlock := flag.Bool("b", false, "Blocking call")
 	flagReverse := flag.Bool("r", false, "Reverse send")
+	flagFEC := flag.Bool("fec", false, "Enable FEC")
+
+	flagMultiplexer := flag.String("mplexer", "parallel", "Stream Multiplexer. Default: Parallel")
+
 	flag.Parse()
 	config := TrafficGenConfig{
 		Mode:              *flagMode,
@@ -798,6 +815,8 @@ func main() {
 		IsBlockCall:       *flagBlock,
 		IsReverse:         *flagReverse,
 		StartDelay:        *flagStartDelay,
+		useFEC:            *flagFEC,
+		multiplexer:       *flagMultiplexer,
 	}
 	if *flagDebug {
 		utils.SetLogLevel(utils.LogLevelDebug)
