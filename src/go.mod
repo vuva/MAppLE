@@ -17,4 +17,5 @@ require (
 	github.com/vishvananda/netlink v1.1.0
 	golang.org/x/crypto v0.0.0-20200317142112-1b76d66859c6
 	golang.org/x/net v0.0.0-20200301022130-244492dfa37a
+	honnef.co/go/tools v0.0.1-2020.1.6
 )

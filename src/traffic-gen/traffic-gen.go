@@ -455,6 +455,8 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 	}()
 	<-generatingDone
 	<-sendingDone
+
+	quic.CloseAllOutgoingStream(quic_session)
 	writeToFile(LOG_PREFIX+"sender-timestamp.log", timeStamps)
 	// writeToFile(LOG_PREFIX+"write-timegap.log", writeTime)
 	os.Rename("sender-frame.log", LOG_PREFIX+"sender-frame.log")
@@ -587,7 +589,7 @@ messageLoop:
 		}
 	}
 	//sess.RemoveStream(stream.StreamID())
-	utils.Debugf("\n Finish receive a message on  Stream: %d at %d \n", stream.StreamID(), time.Now().UnixNano())
+	utils.Debugf("\n Finish receive on Stream: %d at %d \n", stream.StreamID(), time.Now().UnixNano())
 }
 
 func startQUICSession(urls []string, scheduler string, isMultipath bool, useFEC bool) (sess quic.Session, err error) {

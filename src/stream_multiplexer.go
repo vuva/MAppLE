@@ -32,6 +32,20 @@ func addDataToStream(stream Stream, data []byte) int {
 	return n
 }
 
+func CloseAllOutgoingStream(quic_session Session) {
+
+	streamMap, err := quic_session.GetStreamMap()
+	if err != nil {
+		return
+	}
+
+	for _, datastream := range streamMap.streams {
+		if datastream.StreamID()%2 == 1 {
+			datastream.Close()
+		}
+	}
+}
+
 func MultiplexData(session Session, multiplexingPolicy string, data []byte) bool {
 	var selected_stream Stream
 	switch multiplexingPolicy {
@@ -55,21 +69,17 @@ func policyParallel(quic_sess Session) Stream {
 	if err != nil {
 		return nil
 	}
-	//streamMap.mutex.RLock()
 	streamList := streamMap.streams
-	//streamMap.mutex.Unlock()
 
-	count := 0
 	for id, datastream := range streamList {
-		if datastream.LenOfDataForWriting() == 0 && datastream.StreamID()%2 == 1 {
+		if datastream.LenOfDataForWriting() == 0 && datastream.StreamID()%2 == 1 && datastream.StreamID() > 1 {
 			utils.Debugf("\n policyParallel found avaiable stream %d id %d ", id, datastream.StreamID())
 			return datastream
 		}
 	}
 
-	utils.Debugf("\n policyParallel stream count %d", count)
-	new_datastream := createNewStream(quic_sess)
-	return new_datastream
+	return createNewStream(quic_sess)
+
 }
 
 func policyOneStream(quic_sess Session) Stream {
@@ -78,25 +88,13 @@ func policyOneStream(quic_sess Session) Stream {
 	if err != nil {
 		return nil
 	}
-	streamMap.mutex.RLock()
-	defer streamMap.mutex.Unlock()
+
 	for id, datastream := range streamMap.streams {
-		if datastream.StreamID() > 0 {
-			utils.Debugf("\n vuva: id %d stream %p", id, datastream)
+		if datastream.StreamID()%2 == 1 && datastream.StreamID() > 1 {
+			utils.Debugf("\n vuva: id %d stream %d", id, datastream.StreamID())
 			return datastream
 		}
 	}
 	return createNewStream(quic_sess)
 
-}
-func TestMultiplexer(quic_session Session, message []byte) {
-	//stream, err := quic_session.OpenStreamSync()
-	stream := policyParallel(quic_session)
-	//if err != nil {
-	//utils.Debugf("Error OpenStreamSync:", err)
-	//return
-	//}
-	defer stream.Close()
-	stream.Write(message)
-	quic_session.RemoveStream(stream.StreamID())
 }
