@@ -23,13 +23,37 @@ func createNewStream(quic_session Session) Stream {
 func addDataToStream(stream Stream, data []byte) int {
 
 	utils.Debugf("\n addDataToStream %d", stream.StreamID())
-	n, err := stream.Write(data)
+	/*
+	 *        n, err := stream.Write(data)
+	 *
+	 *        if err != nil {
+	 *                utils.Errorf("\nStreamWrite: %s", err)
+	 *                return 0
+	 *        }
+	 *	return n
+	 */
+	go stream.Write(data)
+	// TODO: check if the data is sent of not
+	return 1
+}
 
+func AllStreamsAreEmpty(quic_sess Session) bool {
+
+	streamMap, err := quic_sess.GetStreamMap()
 	if err != nil {
-		utils.Errorf("\nStreamWrite: %s", err)
-		return 0
+		return false
 	}
-	return n
+	streamMap.mutex.RLock()
+
+	for _, datastream := range streamMap.streams {
+		if datastream.LenOfDataForWriting() > 0 && datastream.StreamID()%2 == 1 && datastream.StreamID() > 1 {
+			streamMap.mutex.RUnlock()
+			return false
+		}
+	}
+
+	streamMap.mutex.RUnlock()
+	return true
 }
 
 func CloseAllOutgoingStream(quic_session Session) {
@@ -69,14 +93,17 @@ func policyParallel(quic_sess Session) Stream {
 	if err != nil {
 		return nil
 	}
-	streamList := streamMap.streams
+	streamMap.mutex.RLock()
 
-	for id, datastream := range streamList {
+	for id, datastream := range streamMap.streams {
 		if datastream.LenOfDataForWriting() == 0 && datastream.StreamID()%2 == 1 && datastream.StreamID() > 1 {
 			utils.Debugf("\n policyParallel found avaiable stream %d id %d ", id, datastream.StreamID())
+			streamMap.mutex.RUnlock()
 			return datastream
 		}
 	}
+
+	streamMap.mutex.RUnlock()
 
 	return createNewStream(quic_sess)
 
@@ -89,12 +116,15 @@ func policyOneStream(quic_sess Session) Stream {
 		return nil
 	}
 
+	streamMap.mutex.RLock()
 	for id, datastream := range streamMap.streams {
 		if datastream.StreamID()%2 == 1 && datastream.StreamID() > 1 {
 			utils.Debugf("\n vuva: id %d stream %d", id, datastream.StreamID())
+			streamMap.mutex.RUnlock()
 			return datastream
 		}
 	}
+	streamMap.mutex.RUnlock()
 	return createNewStream(quic_sess)
 
 }

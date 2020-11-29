@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/binary"
 	"encoding/pem"
+	"math"
 
 	"sync"
 
@@ -45,8 +46,9 @@ import (
 type binds []string
 
 type ServerLogRecord struct {
-	timestamp   uint
-	messageSize quic_protocol.ByteCount
+	generated_time uint
+	sent_time      uint
+	messageSize    quic_protocol.ByteCount
 }
 
 type ServerLog struct {
@@ -180,8 +182,8 @@ func receiveTCP(socket net.Conn) {
 				seq_no := data_chunk[0:4]
 				seq_no_int := bytesToInt(seq_no)
 				timeStamps[seq_no_int] = ServerLogRecord{
-					timestamp:   uint(time.Now().UnixNano()),
-					messageSize: quic_protocol.ByteCount(eoc_byte_index + 4),
+					generated_time: uint(time.Now().UnixNano()),
+					messageSize:    quic_protocol.ByteCount(eoc_byte_index + 4),
 				}
 				//				buffer.Write(message[eoc_byte_index:length])
 
@@ -312,8 +314,9 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 	send_queue := MessageList{mess_list: list.New()}
 	gen_finished := false
 
+	// This Go routine generate messages
 	go func() {
-		gen_counter := 1
+		gen_counter := 0
 		gen_bytes := 0
 
 		for i := 1; time.Now().Before(endTime); i++ {
@@ -326,21 +329,16 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 				time.Sleep(time.Nanosecond)
 				continue
 			}
-			// reader := bufio.NewReader(os.Stdin)
-			// message, _ := reader.ReadString('\n')
-			//			utils.Debugf("before: %d \n", time.Now().UnixNano())
 			message, seq := generateMessage(uint(gen_counter), config.CsizeDistro, config.CsizeValue)
 			gen_counter++
 			gen_bytes += len(message)
-			// send_queue = append(send_queue, message)
-			// next_message := send_queue[0]
 
 			// if !isBlockingCall {
 			var wait_time uint
 			if time.Now().Before(startTime) {
-				wait_time = 1000000000
+				wait_time = uint(math.Pow10(9)) // if startDelay, wait 1s  until then
 			} else {
-				wait_time = uint(1000000000/getRandom(config.ArrDistro, config.ArrValue)) - (uint(time.Now().UnixNano()) - timeStamps[seq-1].timestamp)
+				wait_time = uint(math.Pow10(9)/getRandom(config.ArrDistro, config.ArrValue)) - (uint(time.Now().UnixNano()) - timeStamps[seq-1].generated_time)
 			}
 
 			if !config.Unlimited && wait_time > 0 {
@@ -351,36 +349,30 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 			// if !isBlockingCall {
 			// Get time at the moment message generated
 			timeStamps[seq] = ServerLogRecord{
-				timestamp:   uint(time.Now().UnixNano()),
-				messageSize: quic_protocol.ByteCount(len(message)),
+				generated_time: uint(time.Now().UnixNano()),
+				messageSize:    quic_protocol.ByteCount(len(message)),
 			}
-			// utils.Debugf("Messages in queue: %d \n", len(send_queue))
 
 			// }
 			send_queue.mutex.Lock()
 			send_queue.mess_list.PushBack(message)
 			send_queue.mutex.Unlock()
 
-			// writeTime[seq] = uint(time.Now().UnixNano()) - timeStamps[seq]
-
-			// remove sent file from the queue
-			// send_queue = send_queue[1:]
-
-			// utils.Debugf("PUT: %d \n", seq)
-
 		}
-		utils.Debugf("Done after %dms", run_time_duration.Nanoseconds()/1000000)
-		utils.Debugf("Generate total: %d messages, %d bytes", gen_counter, gen_bytes)
+		utils.Infof("Generation done after %d ms", run_time_duration.Nanoseconds()/int64(math.Pow10(6)))
+		utils.Infof("Generate total: %d messages, %d bytes", gen_counter, gen_bytes)
 		gen_finished = true
 		generatingDone <- true
 	}()
 
+	// This Go routine send message
 	go func() {
 		sent_counter := 0
 		//var current_stream quic.Stream
+		var wg sync.WaitGroup
 
-		for !gen_finished {
-			time.Sleep(time.Nanosecond)
+		for !(gen_finished && send_queue.mess_list.Len() == 0) {
+			wait(1000) // Wait for 1 microsecond
 			if send_queue.mess_list.Len() == 0 {
 				continue
 			}
@@ -398,7 +390,19 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 
 			utils.Debugf("Message in queue: %d at %d \n", send_queue.mess_list.Len(), uint(time.Now().UnixNano()))
 			if config.Protocol == "quic" {
-				go quic.MultiplexData(quic_session, config.multiplexer, message)
+				// Use  Multiplexter
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					if quic.MultiplexData(quic_session, config.multiplexer, message) {
+						sent_counter++
+						utils.Debugf("\n Send %d message successfully: %d", sent_counter, message[0:4])
+					} else {
+						utils.Debugf("\n Failed to send message: %d", message[0:4])
+					}
+				}()
+
+				// DEPRECATED: Not use multliplexe
 				//go quic.TestMultiplexer(quic_session, message)
 				/*
 				 *                                if config.IsMultiStream {
@@ -423,10 +427,11 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 
 			} else if config.Protocol == "tcp" {
 				go connection.Write(message)
+				sent_counter++
 
 			}
 
-			sent_counter++
+			//sent_counter++
 			send_queue.mutex.Lock()
 			// send_queue.isSending = false
 			send_queue.mess_list.Remove(queue_font)
@@ -448,15 +453,23 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 			// }
 
 		}
-		utils.Debugf("Sent total: %d messages", sent_counter)
-
+		wg.Wait()
+		utils.Infof("Sent total: %d messages", sent_counter)
 		sendingDone <- true
 
 	}()
+
+	// Wait for finishing generating and sending
 	<-generatingDone
 	<-sendingDone
 
+	// Wait until all data is sent
+	for !quic.AllStreamsAreEmpty(quic_session) {
+		wait(uint(math.Pow10(9))) // wait 1 second
+	}
 	quic.CloseAllOutgoingStream(quic_session)
+
+	// Write timestamp to log
 	writeToFile(LOG_PREFIX+"sender-timestamp.log", timeStamps)
 	// writeToFile(LOG_PREFIX+"write-timegap.log", writeTime)
 	os.Rename("sender-frame.log", LOG_PREFIX+"sender-frame.log")
@@ -522,31 +535,31 @@ func startQUICServer(addr string, isMultipath bool, isMultiStream bool, useFEC b
 	}
 
 	writeToFile(LOG_PREFIX+"server-timestamp.log", serverlog.data)
-	utils.Debugf("\nFinish receive: %d messages \n", len(serverlog.data))
+	utils.Infof("\nFinish receive: %d messages \n", len(serverlog.data))
 	return err
 }
 
 func receiveQUICStream(sess quic.Session, stream quic.Stream, isMultistream bool, serverlog *ServerLog) {
 	utils.Debugf("\n Get data from stream: %d \n at ", stream.StreamID(), time.Now().UnixNano())
 	// beginstream := time.Now()
-	buffer := make([]byte, 0)
+	message_buffer := make([]byte, 0)
 	defer stream.Close()
 	// prevTime := time.Now()
 messageLoop:
 	for {
 		// readTime := time.Now()
-		message := make([]byte, 65536)
-		length, err := stream.Read(message)
+		receive_buffer := make([]byte, 1024000)
+		length, err := stream.Read(receive_buffer)
 
 		if length > 0 {
-			message = message[0:length]
+			receive_buffer = receive_buffer[0:length]
 			// utils.Debugf("\n after %d RECEIVED from stream %d mes_len %d buffer %d: %x...%x \n", time.Now().Sub(prevTime).Nanoseconds(), stream.StreamID(), length, len(buffer), message[0:4], message[length-4:length])
 			// prevTime = time.Now()
-			eoc_byte_index := bytes.Index(message, intToBytes(uint(BASE_SEQ_NO-1), 4))
+			eoc_byte_index := bytes.Index(receive_buffer, intToBytes(uint(BASE_SEQ_NO-1), 4))
 			// log.Println(eoc_byte_index)
 
 			for eoc_byte_index != -1 {
-				data_chunk := append(buffer, message[0:eoc_byte_index+4]...)
+				data_chunk := append(message_buffer, receive_buffer[0:eoc_byte_index+4]...)
 				//				seq_no := message[eoc_byte_index-4:eoc_byte_index]
 				// utils.Debugf("\n CHUNK: %x...%x  \n  length %d \n", data_chunk[0:4], data_chunk[len(data_chunk)-4:len(data_chunk)], len(data_chunk))
 				// Get data chunk ID and record receive timestampt
@@ -561,11 +574,12 @@ messageLoop:
 				//
 				//				buffer.Write(message[eoc_byte_index:length])
 				if seq_no_int >= BASE_SEQ_NO {
-					utils.Debugf("\n Got seq: %d at %d \n", seq_no_int, time.Now().UnixNano())
+					utils.Debugf("\n Received message: %d at %d \n", seq_no, time.Now().UnixNano())
 					serverlog.lock.Lock()
 					serverlog.data[seq_no_int] = ServerLogRecord{
-						timestamp:   uint(time.Now().UnixNano()),
-						messageSize: quic_protocol.ByteCount(eoc_byte_index + 4),
+						generated_time: uint(time.Now().UnixNano()),
+						//messageSize: quic_protocol.ByteCount(eoc_byte_index + 4),
+						messageSize: quic_protocol.ByteCount(len(data_chunk)),
 					}
 					serverlog.lock.Unlock()
 					if isMultistream {
@@ -575,16 +589,15 @@ messageLoop:
 				}
 
 				// Cut out recorded chunk
-				message = message[eoc_byte_index+4:]
-				buffer = make([]byte, 0)
-				eoc_byte_index = bytes.Index(message, intToBytes(uint(BASE_SEQ_NO-1), 4))
+				receive_buffer = receive_buffer[eoc_byte_index+4:]
+				message_buffer = make([]byte, 0)
+				eoc_byte_index = bytes.Index(receive_buffer, intToBytes(uint(BASE_SEQ_NO-1), 4))
 			}
-			buffer = append(buffer, message...)
+			message_buffer = append(message_buffer, receive_buffer...)
 		}
 
 		if err != nil {
 			utils.Debugf("Error getting mess: ", err)
-
 			break messageLoop
 		}
 	}
@@ -691,7 +704,7 @@ func writeToFile(filename string, data map[uint]ServerLogRecord) error {
 	defer file.Close()
 
 	for k, v := range data {
-		line := fmt.Sprintf("%d %d %d\n", k, v.timestamp, v.messageSize)
+		line := fmt.Sprintf("%d %d %d\n", k, v.generated_time, v.messageSize)
 		_, err = io.WriteString(file, line)
 		if err != nil {
 			return err
@@ -822,6 +835,8 @@ func main() {
 	}
 	if *flagDebug {
 		utils.SetLogLevel(utils.LogLevelDebug)
+	} else {
+		utils.SetLogLevel(utils.LogLevelInfo)
 	}
 
 	LOG_PREFIX = *flagLog
