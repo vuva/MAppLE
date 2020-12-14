@@ -30,8 +30,8 @@ import (
 	"strings"
 	"time"
 
+	prob "github.com/atgjack/prob"
 	quic "github.com/lucas-clemente/quic-go"
-
 	"github.com/lucas-clemente/quic-go/fec"
 	// "github.com/lucas-clemente/quic-go/h2quic"
 	// "github.com/lucas-clemente/quic-go/internal/testdata"
@@ -392,18 +392,28 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 			utils.Debugf("Message in queue: %d at %d \n", send_queue.mess_list.Len(), uint(time.Now().UnixNano()))
 			if config.Protocol == "quic" {
 				// Use  Multiplexter
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				if config.IsBlockCall {
+
 					if quic.MultiplexData(quic_session, config.multiplexer, message) {
 						sent_counter++
 						utils.Debugf("\n Send %d message successfully: %d", sent_counter, message[0:4])
 					} else {
 						utils.Debugf("\n Failed to send message: %d", message[0:4])
 					}
-				}()
+				} else {
 
-				// DEPRECATED: Not use multliplexe
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						if quic.MultiplexData(quic_session, config.multiplexer, message) {
+							sent_counter++
+							utils.Debugf("\n Send %d message successfully: %d", sent_counter, message[0:4])
+						} else {
+							utils.Debugf("\n Failed to send message: %d", message[0:4])
+						}
+					}()
+				}
+				// DEPRECATED: Not use multliplexer
 				//go quic.TestMultiplexer(quic_session, message)
 				/*
 				 *                                if config.IsMultiStream {
@@ -505,7 +515,7 @@ func startQUICServer(addr string, isMultipath bool, isMultiStream bool, fecSchem
 	var useFEC bool
 	var fecID quic.FECSchemeID
 	var fecReCrller fec.RedundancyController
-	if fecScheme != "" {
+	if fecScheme != "" && fecScheme != "nofec" {
 		useFEC = true
 		fecID, fecReCrller = quic.FECConfigFromString(fecScheme)
 	} else {
@@ -567,13 +577,14 @@ messageLoop:
 
 		if length > 0 {
 			receive_buffer = receive_buffer[0:length]
+			message_buffer = append(message_buffer, receive_buffer...)
 			// utils.Debugf("\n after %d RECEIVED from stream %d mes_len %d buffer %d: %x...%x \n", time.Now().Sub(prevTime).Nanoseconds(), stream.StreamID(), length, len(buffer), message[0:4], message[length-4:length])
 			// prevTime = time.Now()
-			eoc_byte_index := bytes.Index(receive_buffer, intToBytes(uint(BASE_SEQ_NO-1), 4))
+			eoc_byte_index := bytes.Index(message_buffer, intToBytes(uint(BASE_SEQ_NO-1), 4))
 			// log.Println(eoc_byte_index)
 
 			for eoc_byte_index != -1 {
-				data_chunk := append(message_buffer, receive_buffer[0:eoc_byte_index+4]...)
+				data_chunk := message_buffer[0 : eoc_byte_index+4]
 				//				seq_no := message[eoc_byte_index-4:eoc_byte_index]
 				// utils.Debugf("\n CHUNK: %x...%x  \n  length %d \n", data_chunk[0:4], data_chunk[len(data_chunk)-4:len(data_chunk)], len(data_chunk))
 				// Get data chunk ID and record receive timestampt
@@ -596,18 +607,18 @@ messageLoop:
 						messageSize: quic_protocol.ByteCount(len(data_chunk)),
 					}
 					serverlog.lock.Unlock()
-					if isMultistream {
-						break messageLoop
-
-					}
+					/*
+					 *                                        if isMultistream {
+					 *                                                break messageLoop
+					 *
+					 *                                        }
+					 */
 				}
 
 				// Cut out recorded chunk
-				receive_buffer = receive_buffer[eoc_byte_index+4:]
-				message_buffer = make([]byte, 0)
-				eoc_byte_index = bytes.Index(receive_buffer, intToBytes(uint(BASE_SEQ_NO-1), 4))
+				message_buffer = message_buffer[eoc_byte_index+4:]
+				eoc_byte_index = bytes.Index(message_buffer, intToBytes(uint(BASE_SEQ_NO-1), 4))
 			}
-			message_buffer = append(message_buffer, receive_buffer...)
 		}
 
 		if err != nil {
@@ -629,7 +640,7 @@ func startQUICSession(urls []string, scheduler string, isMultipath bool, fecSche
 	var useFEC bool
 	var fecID quic.FECSchemeID
 	var fecReCrller fec.RedundancyController
-	if fecScheme != "" {
+	if fecScheme != "" && fecScheme != "nofec" {
 		useFEC = true
 		fecID, fecReCrller = quic.FECConfigFromString(fecScheme)
 	} else {
@@ -678,6 +689,16 @@ func getRandom(distro string, value float64) float64 {
 	case "b":
 
 	case "wei":
+
+	case "tld":
+		dist, _ := prob.NewLogistic(0.25, 0.5)
+		retVal = value * dist.Random()
+
+		if retVal > 2*value {
+			retVal = 2 * value
+		} else if retVal < value/4 {
+			retVal = value / 4
+		}
 
 	default:
 		retVal = 1.0
