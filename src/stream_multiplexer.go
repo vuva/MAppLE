@@ -32,7 +32,7 @@ func addDataToStream(stream Stream, data []byte) int {
 	 *        }
 	 *	return n
 	 */
-	go stream.Write(data)
+	stream.Write(data)
 	// TODO: check if the data is sent of not
 	return 1
 }
@@ -46,7 +46,7 @@ func AllStreamsAreEmpty(quic_sess Session) bool {
 	streamMap.mutex.RLock()
 
 	for _, datastream := range streamMap.streams {
-		if datastream.LenOfDataForWriting() > 0 && datastream.StreamID()%2 == 1 && datastream.StreamID() > 1 {
+		if datastream.LenOfDataForWriting() > 0 {
 			streamMap.mutex.RUnlock()
 			return false
 		}
