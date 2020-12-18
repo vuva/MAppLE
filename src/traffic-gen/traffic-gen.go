@@ -327,7 +327,7 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 			}
 
 			if ((config.Protocol == "tcp" || config.IsBlockCall) && send_queue.mess_list.Len() > 0) || send_queue_size > MAX_SEND_BUFFER_SIZE {
-				time.Sleep(time.Nanosecond)
+				time.Sleep(time.Millisecond)
 				continue
 			}
 			message, seq := generateMessage(uint(gen_counter), config.CsizeDistro, config.CsizeValue)
@@ -567,15 +567,18 @@ func receiveQUICStream(sess quic.Session, stream quic.Stream, isMultistream bool
 	utils.Debugf("\n Get data from stream: %d \n at ", stream.StreamID(), time.Now().UnixNano())
 	// beginstream := time.Now()
 	message_buffer := make([]byte, 0)
+	recorded_ts := time.Now().UnixNano()
 	defer stream.Close()
 	// prevTime := time.Now()
 messageLoop:
 	for {
 		// readTime := time.Now()
-		receive_buffer := make([]byte, 16<<2)
+		receive_buffer := make([]byte, 2<<20)
 		length, err := stream.Read(receive_buffer)
+		utils.Debugf("\t Read data from stream len  %d", length)
 
 		if length > 0 {
+			recorded_ts = time.Now().UnixNano()
 			receive_buffer = receive_buffer[0:length]
 			message_buffer = append(message_buffer, receive_buffer...)
 			// utils.Debugf("\n after %d RECEIVED from stream %d mes_len %d buffer %d: %x...%x \n", time.Now().Sub(prevTime).Nanoseconds(), stream.StreamID(), length, len(buffer), message[0:4], message[length-4:length])
@@ -599,10 +602,10 @@ messageLoop:
 				//
 				//				buffer.Write(message[eoc_byte_index:length])
 				if seq_no_int >= BASE_SEQ_NO {
-					utils.Debugf("\n Received message: %d on Stream %d \n", seq_no, stream.StreamID())
+					utils.Debugf("\n Received message: %d on Stream %d at %s \n", seq_no, stream.StreamID(), recorded_ts)
 					serverlog.lock.Lock()
 					serverlog.data[seq_no_int] = ServerLogRecord{
-						generated_time: uint(time.Now().UnixNano()),
+						generated_time: uint(recorded_ts),
 						//messageSize: quic_protocol.ByteCount(eoc_byte_index + 4),
 						messageSize: quic_protocol.ByteCount(len(data_chunk)),
 					}
@@ -626,6 +629,7 @@ messageLoop:
 			//utils.Debugf("\n Data in buffer: %d \n Message: %d", receive_buffer, message_buffer)
 			break messageLoop
 		}
+		time.Sleep(time.Microsecond)
 	}
 	//sess.RemoveStream(stream.StreamID())
 	utils.Debugf("\n Finish receive on Stream: %d at %s \n", stream.StreamID(), time.Now())
@@ -882,6 +886,7 @@ func main() {
 	}
 	if *flagDebug {
 		utils.SetLogLevel(utils.LogLevelDebug)
+		utils.SetLogTimeFormat(time.StampMilli)
 	} else {
 		utils.SetLogLevel(utils.LogLevelInfo)
 	}
