@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/lucas-clemente/quic-go/internal/protocol"
+	"github.com/lucas-clemente/quic-go/internal/utils"
 	"github.com/lucas-clemente/quic-go/internal/wire"
 	"github.com/lucas-clemente/quic-go/sedpf"
 )
@@ -95,12 +96,14 @@ func (sched *SEDPFScheduler) SelectPathsAndOrder(s sessionI, hasRetransmission b
 		fastPath = sched.SelectPathLowRTT(s, hasRetransmission, hasStreamRetransmission, false, fromPth, sch)
 		// inverse LowRTT
 		slowPath = sched.SelectFECPathLatencyBased(s)
-
-		if fastPath != nil && slowPath != nil && fastPath.GetWindowedLossRatio() > slowPath.GetWindowedLossRatio() {
+		if fastPath != nil && slowPath != nil && fastPath != slowPath && fastPath.GetWindowedLossRatio() > slowPath.GetWindowedLossRatio() {
 			// actually the fast path has a much worse loss rate than the
 			// slow path
 			// regular IOD would be harmful, so fall back to LowRTT here
 			disableIOD = true
+			utils.Debugf("\n Disable O-IOD: \n fastPath RTT %d loss %f \n slowPath RTT %d loss %f", fastPath.rttStats.SmoothedRTT(), fastPath.GetWindowedLossRatio(), slowPath.rttStats.SmoothedRTT(), slowPath.GetWindowedLossRatio())
+		} else if fastPath != nil && slowPath != nil && fastPath != slowPath {
+			utils.Debugf("\n Enable O-IOD: \n fastPath RTT %d loss %f \n slowPath RTT %d loss %f", fastPath.rttStats.SmoothedRTT(), fastPath.GetWindowedLossRatio(), slowPath.rttStats.SmoothedRTT(), slowPath.GetWindowedLossRatio())
 		}
 	}
 

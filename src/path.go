@@ -8,6 +8,7 @@ import (
 	"github.com/lucas-clemente/quic-go/internal/utils"
 	"github.com/lucas-clemente/quic-go/internal/wire"
 	"github.com/lucas-clemente/quic-go/qerr"
+	"math"
 	"time"
 )
 
@@ -16,7 +17,8 @@ const (
 	// XXX (QDC): To avoid idling...
 	maxPathTimer = 1 * time.Second
 
-	LOSS_RATE_WINDOW_SIZE = 1000
+	LOSS_RATE_WINDOW_SIZE      = 2000
+	LOSS_RATE_SMOOTHING_FACTOR = 0.75
 )
 
 type path struct {
@@ -96,6 +98,7 @@ func (p *path) setup(oliaSenders map[protocol.PathID]*congestion.OliaSender, red
 	var cong congestion.SendAlgorithm
 
 	cc := p.sess.GetConfig().CongestionControl
+	utils.Debugf("Start Congestion control: %d", cc)
 	if cc == protocol.CongestionControlOlia &&
 		p.sess.GetVersion() >= protocol.VersionMP && oliaSenders != nil && p.pathID != protocol.InitialPathID {
 		// OLIA congestion control on this path
@@ -349,8 +352,16 @@ func (p *path) GetCongestionWindowFree() protocol.ByteCount {
 }
 
 func (p *path) maybeUpdateLossAckRatio() {
+	if p.windowedLossRate.nAcks == 0 {
+		// require at least one ack before calculating a new ratio to
+		// avoid divison by zero
+		return
+	}
+
 	if p.windowedLossRate.nAcks+p.windowedLossRate.nLosses > LOSS_RATE_WINDOW_SIZE {
-		p.windowedLossRate.ratio = float64(p.windowedLossRate.nLosses) / float64(p.windowedLossRate.nAcks)
+		p.windowedLossRate.ratio = (1-LOSS_RATE_SMOOTHING_FACTOR)*p.windowedLossRate.ratio +
+			LOSS_RATE_SMOOTHING_FACTOR*(float64(p.windowedLossRate.nLosses)/float64(p.windowedLossRate.nAcks))
+			//		p.windowedLossRate.ratio = float64(p.windowedLossRate.nLosses) / float64(p.windowedLossRate.nAcks)
 		p.windowedLossRate.nAcks = 0
 		p.windowedLossRate.nLosses = 0
 	}
@@ -360,6 +371,7 @@ func (p *path) RecordLoss() {
 	p.windowedLossRate.nLosses++
 	// don't call p.maybeUpdateLossAckRatio() here
 	// this avoids the odd division by zero
+	p.maybeUpdateLossAckRatio()
 }
 
 func (p *path) RecordAcknowledgement() {
@@ -369,4 +381,16 @@ func (p *path) RecordAcknowledgement() {
 
 func (p *path) GetWindowedLossRatio() float64 {
 	return p.windowedLossRate.ratio
+}
+
+func (p *path) GetLAMPSLossRate() float64 {
+	getEstimatedLossRate := func(packetsBetweenTwoLosses, currentPacketsSinceLastLost float64) float64 {
+		if packetsBetweenTwoLosses == -1 {
+			return 0.0
+		}
+		return 1.0 / math.Max(packetsBetweenTwoLosses, currentPacketsSinceLastLost) // MPTCP LAMPS
+	}
+
+	oSender := p.sess.PathManager().oliaSenders[p.pathID]
+	return getEstimatedLossRate(oSender.GetSmoothedBytesBetweenTwoLosses(), float64(oSender.GetCurrentPacketsSinceLastLoss()))
 }

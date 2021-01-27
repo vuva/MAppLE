@@ -9,7 +9,7 @@ import (
 
 // values from QUIC-FEC example
 const (
-	NumberOfFecPackets           uint = 4
+	NumberOfFecPackets           uint = 8
 	NumberOfRepairSymbols        uint = 1
 	NumberOfInterleavedFECGroups uint = 1
 	ConvolutionalWindowSize      uint = 20

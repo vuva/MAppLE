@@ -247,7 +247,6 @@ func (s *stream) Read(p []byte) (int, error) {
 			return bytesRead, fmt.Errorf("BUG: readPosInFrame (%d) > frame.DataLen (%d) in stream.Read", s.readPosInFrame, frame.DataLen())
 		}
 		copy(p[bytesRead:], frame.Data[s.readPosInFrame:])
-
 		s.readPosInFrame += m
 		bytesRead += m
 
@@ -300,9 +299,9 @@ func (s *stream) Write(p []byte) (int, error) {
 		return 0, nil
 	}
 
-	//s.dataForWriting = make([]byte, len(p))
-	//copy(s.dataForWriting, p)
-	s.dataForWriting = append(s.dataForWriting, p...)
+	s.dataForWriting = make([]byte, len(p))
+	copy(s.dataForWriting, p)
+	//s.dataForWriting = append(s.dataForWriting, p...)
 	s.onData()
 
 	var err error

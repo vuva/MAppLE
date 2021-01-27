@@ -3,11 +3,50 @@ package quic
 import (
 	//	"bytes"
 	//"github.com/lucas-clemente/quic-go/internal/protocol"
+	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/utils"
 	//"io"
+	"container/list"
+	"sync"
+	"time"
 )
 
 //var multiplexingPolicy string = ""
+
+type MessageQueue struct {
+	mess_list *list.List
+	// isSending bool
+	mutex sync.RWMutex
+}
+
+var stream_queues map[protocol.StreamID]MessageQueue
+
+func StartMultiplexer(quic_sess Session) {
+	stream_queues = make(map[protocol.StreamID]MessageQueue)
+	for {
+		streamMap, err := quic_sess.GetStreamMap()
+		if err != nil {
+			return
+		}
+		streamMap.mutex.RLock()
+		for stream_id, stream := range streamMap.streams {
+			queue := stream_queues[stream_id]
+			if queue.mess_list.Len() == 0 || stream.LenOfDataForWriting() > 0 {
+				continue
+			}
+			queue_font := queue.mess_list.Front()
+			message, _ := queue_font.Value.([]byte)
+			go stream.Write(message)
+
+			queue.mutex.Lock()
+			// send_queue.isSending = false
+			queue.mess_list.Remove(queue_font)
+			queue.mutex.Unlock()
+		}
+		streamMap.mutex.RUnlock()
+		time.Sleep(time.Duration(100000) * time.Nanosecond) // Wait for 100 microsecond
+	}
+}
 
 func createNewStream(quic_session Session) Stream {
 	utils.Debugf("\n Opening new stream ...")
@@ -16,6 +55,7 @@ func createNewStream(quic_session Session) Stream {
 		utils.Errorf("\nOpenStream: %s", err)
 		return nil
 	}
+	stream_queues[stream.StreamID()] = MessageQueue{mess_list: list.New()}
 	utils.Debugf("\n Stream %d created", stream.StreamID())
 	return stream
 }
@@ -32,8 +72,14 @@ func addDataToStream(stream Stream, data []byte) int {
 	 *        }
 	 *	return n
 	 */
-	stream.Write(data)
+	//stream.Write(data)
 	// TODO: check if the data is sent of not
+	var stream_queue MessageQueue
+	stream_queue = stream_queues[stream.StreamID()]
+	stream_queue.mutex.Lock()
+	stream_queue.mess_list.PushBack(data)
+	stream_queue.mutex.Unlock()
+
 	return 1
 }
 
@@ -118,7 +164,7 @@ func policyOneStream(quic_sess Session) Stream {
 
 	streamMap.mutex.RLock()
 	for id, datastream := range streamMap.streams {
-		if datastream.StreamID()%2 == 1 && datastream.StreamID() > 1 {
+		if datastream.StreamID()%2 == 1 && datastream.StreamID() >= 1 {
 			utils.Debugf("\n vuva: id %d stream %d", id, datastream.StreamID())
 			streamMap.mutex.RUnlock()
 			return datastream
