@@ -246,7 +246,7 @@ func startServerMode(config *TrafficGenConfig) {
 			//		go manager.send(client)
 		}
 	case "quic":
-		startQUICServer(config.Address, config.IsMultipath, config.IsMultiStream, config.FECScheme, config.Sched)
+		startQUICServer(config.Address, config.IsMultipath, config.IsMultiStream, config.FECScheme, config.Sched, config.CongestionControl)
 
 	}
 
@@ -262,7 +262,7 @@ func startClientMode(config *TrafficGenConfig) {
 
 	if config.Protocol == "quic" {
 		addresses := []string{config.Address}
-		quic_session, err = startQUICSession(addresses, config.Sched, config.IsMultipath, config.FECScheme)
+		quic_session, err = startQUICSession(addresses, config.Sched, config.IsMultipath, config.FECScheme, config.CongestionControl)
 		if err != nil {
 			panic(err)
 		}
@@ -372,6 +372,7 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 		//var current_stream quic.Stream
 		var wg sync.WaitGroup
 
+		go quic.StartMultiplexer(quic_session)
 		for !(gen_finished && send_queue.mess_list.Len() == 0) {
 			wait(1000) // Wait for 1 microsecond
 			if send_queue.mess_list.Len() == 0 {
@@ -402,8 +403,8 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 					}
 				} else {
 
-					wg.Add(1)
 					go func() {
+						wg.Add(1)
 						defer wg.Done()
 						if quic.MultiplexData(quic_session, config.multiplexer, message) {
 							sent_counter++
@@ -506,7 +507,7 @@ func startQUICClientStream(quic_session quic.Session, message []byte) {
 	quic_session.RemoveStream(stream.StreamID())
 }
 
-func startQUICServer(addr string, isMultipath bool, isMultiStream bool, fecScheme string, scheduler string) error {
+func startQUICServer(addr string, isMultipath bool, isMultiStream bool, fecScheme string, scheduler string, congestionControl string) error {
 	var maxPathID uint8
 	if isMultipath {
 		maxPathID = 2
@@ -527,6 +528,8 @@ func startQUICServer(addr string, isMultipath bool, isMultiStream bool, fecSchem
 		ProtectReliableStreamFrames: useFEC,
 		FECScheme:                   fecID,
 		RedundancyController:        fecReCrller,
+		CongestionControl:           quic_protocol.ParseCongestionControl(congestionControl),
+		CongestionControlName:       congestionControl,
 		//SchedulingScheme:     schedNameConvert("quic", scheduler),
 		// MaxReceiveStreamFlowControlWindow:     uint64(protocol.ByteCount(math.Floor(100 * MB))),
 		// MaxReceiveConnectionFlowControlWindow: uint64(protocol.ByteCount(math.Floor(100 * MB))),
@@ -635,7 +638,7 @@ messageLoop:
 	utils.Debugf("\n Finish receive on Stream: %d at %s \n", stream.StreamID(), time.Now())
 }
 
-func startQUICSession(urls []string, scheduler string, isMultipath bool, fecScheme string) (sess quic.Session, err error) {
+func startQUICSession(urls []string, scheduler string, isMultipath bool, fecScheme string, congestionControl string) (sess quic.Session, err error) {
 	var maxPathID uint8
 	if isMultipath {
 		maxPathID = 2
@@ -656,6 +659,8 @@ func startQUICSession(urls []string, scheduler string, isMultipath bool, fecSche
 		ProtectReliableStreamFrames: useFEC,
 		FECScheme:                   fecID,
 		RedundancyController:        fecReCrller,
+		CongestionControl:           quic_protocol.ParseCongestionControl(congestionControl),
+		CongestionControlName:       congestionControl,
 		//SchedulingScheme:     schedNameConvert("quic", scheduler),
 		// MaxReceiveStreamFlowControlWindow:     uint64(protocol.ByteCount(math.Floor(100 * MB))),
 		// MaxReceiveConnectionFlowControlWindow: uint64(protocol.ByteCount(math.Floor(100 * MB))),

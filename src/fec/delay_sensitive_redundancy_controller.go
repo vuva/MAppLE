@@ -170,7 +170,7 @@ func (rc *delaySensitiveRedundancyController) increaseRFAdditive() {
 		}
 		rc.nRepairSymbols = utils.MinUint(MaxRSRepairSymbols, rc.nRepairSymbols+1)
 	}
-
+	utils.Debugf("\n DataSymbol: %d, RepairSym: %d", rc.GetNumberOfDataSymbols(), rc.GetNumberOfRepairSymbols())
 	rc.filterNDataSymbols()
 }
 
@@ -201,7 +201,7 @@ func (rc *delaySensitiveRedundancyController) increaseRFMultiplicative() {
 		rc.nRepairSymbols = utils.MinUint(MaxRSRepairSymbols, rc.nRepairSymbols*2)
 	}
 
-	rc.filterNDataSymbols()
+	//rc.filterNDataSymbols()
 }
 
 func (rc *delaySensitiveRedundancyController) onCount() {
