@@ -326,7 +326,7 @@ func send(quic_session quic.Session, connection *net.TCPConn, config *TrafficGen
 				send_queue_size += len(e.Value.([]byte))
 			}
 
-			if ((config.Protocol == "tcp" || config.IsBlockCall) && send_queue.mess_list.Len() > 0) || send_queue_size > MAX_SEND_BUFFER_SIZE {
+			if ((config.Protocol == "tcp" || config.IsBlockCall) && (send_queue.mess_list.Len() > 0 || !quic.AllStreamsAreEmpty(quic_session))) || send_queue_size > MAX_SEND_BUFFER_SIZE {
 				time.Sleep(time.Millisecond)
 				continue
 			}

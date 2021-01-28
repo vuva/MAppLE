@@ -91,8 +91,8 @@ func AllStreamsAreEmpty(quic_sess Session) bool {
 	}
 	streamMap.mutex.RLock()
 
-	for _, datastream := range streamMap.streams {
-		if datastream.LenOfDataForWriting() > 0 {
+	for stream_id, datastream := range streamMap.streams {
+		if datastream.LenOfDataForWriting() > 0 || stream_queues[stream_id].mess_list.Len() > 0 {
 			streamMap.mutex.RUnlock()
 			return false
 		}
