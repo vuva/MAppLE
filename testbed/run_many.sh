@@ -1,14 +1,14 @@
 #!/bin/bash
 
-SERVER="server.mpquic-fec.spork-join.filab.uni-hannover.de"
-INTER="intermediate.mpquic-fec.spork-join.filab.uni-hannover.de"
+SERVER="nodem1.moongenmultipath.spork-join.filab.uni-hannover.de"
+INTER="nodem2.moongenmultipath.spork-join.filab.uni-hannover.de"
 MANIFEST="https://10.1.1.2:4242/manifest.mpd"
 
-BITRATE=${BITRATE:=10000000}
+BITRATE=${BITRATE:=5100000}
 ITERATIONS=${ITERATIONS:=5}
 
 CROSSTRAFFIC=${CROSSTRAFFIC:=0}
-DUMP=${DUMP:=1}
+DUMP=${DUMP:=0}
 
 function start_tcpdump_server {
     FNAME=$(date +%s)_$1_$2.pcap
@@ -38,7 +38,7 @@ function start_server {
         start_tcpdump_server $1 $2
     fi
 
-    ssh $SERVER "cd server && ./caddy -quic -mp -scheduler $1 -fec -fecConfig $2 -expLog" &
+    ssh $SERVER "cd mapple/server && ./caddy -quic -mp -scheduler $1 -fec -fecConfig $2 -expLog" &
     sleep 2
 }
 
@@ -48,7 +48,7 @@ function start_server_no_fec {
         start_tcpdump_server $1 none
     fi
 
-    ssh $SERVER "cd server && ./caddy -quic -mp -scheduler $1 -fecConfig win-xor" &
+    ssh $SERVER "cd mapple/server && ./caddy -quic -mp -scheduler $1 -fecConfig win-xor" &
     sleep 2
 }
 

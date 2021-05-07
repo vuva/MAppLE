@@ -80,10 +80,10 @@ def get_mpd(url):
     except urllib.error.HTTPError as error:
         config_dash.LOG.error("Unable to download MPD file HTTP Error: %s" % error.code)
         return None
-    except urllib.error.URLError:
+    except urllib.error.URLError as error:
         error_message = "URLError. Unable to reach Server.Check if Server active"
         config_dash.LOG.error(error_message)
-        print(error_message)
+        print(error,"\n",error_message)
         return None
     except IOError as xxx_todo_changeme:
         http.client.HTTPException = xxx_todo_changeme
@@ -130,7 +130,7 @@ def download_segment(segment_url, dash_folder, download=False):
     filename = ""
     if download:
         filename = os.path.join(dash_folder, segment_name)
-        print(f"SAVING IN {filename}")
+        print("SAVING IN ", filename)
 
     segment_size = glueConnection.download_segment_PM(segment_url, filename)
     if segment_size < 0:
@@ -190,13 +190,15 @@ def start_playback_smart(dp_object, domain, playback_type=None, download=False, 
         :return:
     """
     glueConnection.startLogging(1000)
+    # Initialize the DASH buffer
+    dash_player = dash_buffer.DashPlayer(dp_object.playback_duration, video_segment_duration)
+    dash_player.start()
     # A folder to save the segments in
     file_identifier = id_generator()
     if download:
         os.makedirs(file_identifier)
         config_dash.LOG.info("The segments are stored in %s" % file_identifier)
     dp_list = defaultdict(defaultdict)
-    max_segment_count = 0
     # Creating a Dictionary of all that has the URLs for each segment and different bitrates
     for bitrate in dp_object.video:
         # Getting the URL list for each bitrate
@@ -209,21 +211,12 @@ def start_playback_smart(dp_object, domain, playback_type=None, download=False, 
         media_urls = [dp_object.video[bitrate].initialization] + dp_object.video[bitrate].url_list
         #print "media urls"
         #print media_urls
-        max_segment_count = max(max_segment_count, len(media_urls))
         for segment_count, segment_url in enumerate(media_urls, dp_object.video[bitrate].start):
             # segment_duration = dp_object.video[bitrate].segment_duration
             #print "segment url"
             #print segment_url
             #print(f"bitrate: {bitrate}, seg_no: {segment_count}, url: {segment_url}")
             dp_list[segment_count][bitrate] = segment_url
-
-    # HACK! fake equal segment sizes here
-    video_segment_duration = dp_object.playback_duration / max_segment_count
-
-    # Initialize the DASH buffer
-    dash_player = dash_buffer.DashPlayer(dp_object.playback_duration, video_segment_duration)
-    dash_player.start()
-
     bitrates = list(dp_object.video.keys())
     bitrates.sort()
     print(bitrates)
@@ -243,6 +236,7 @@ def start_playback_smart(dp_object, domain, playback_type=None, download=False, 
     # Netflix Variables
     average_segment_sizes = netflix_rate_map = None
     netflix_state = "INITIAL"
+
     # Start playback of all the segments
     for segment_number, segment in enumerate(dp_list, dp_object.video[current_bitrate].start):
         config_dash.LOG.info(" {}: Processing the segment {}".format(playback_type.upper(), segment_number))
@@ -251,9 +245,15 @@ def start_playback_smart(dp_object, domain, playback_type=None, download=False, 
         if SEGMENT_LIMIT:
             if not dash_player.segment_limit:
                 dash_player.segment_limit = int(SEGMENT_LIMIT)
-            if segment_number > int(SEGMENT_LIMIT):
-                config_dash.LOG.info("Segment limit reached")
+
+        # allow setting a time limit
+        if TIME_LIMIT is not None:
+            if not dash_player.time_limit:
+                dash_player.time_limit = int(TIME_LIMIT)
+            if segment_number*video_segment_duration > int(TIME_LIMIT):
+                config_dash.LOG.info("Time limit reached")
                 break
+
         print("segment_number ={}".format(segment_number))
         print("dp_object.video[bitrate].start={}".format(dp_object.video[bitrate].start))
         if segment_number == dp_object.video[bitrate].start:
@@ -503,7 +503,7 @@ def print_interruptions_info():
         return
     elif len(durations) == 1:
         print("only a single interruption encountered")
-        print(f"length: {durations[0]}")
+        print("length: ", durations[0])
         return
 
     mean = sum(durations) / len(durations)
@@ -551,6 +551,8 @@ def create_arguments(parser):
                         help='Force to use a specific bitrate')
     parser.add_argument('--fecConfig', default='xor4',
                         help='FEC configuration to use')
+    parser.add_argument('-t', '--TIME-LIMIT', type=int, default=None,
+                        help="stop playback after this many seconds")
 
 
 def main():

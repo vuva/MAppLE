@@ -42,6 +42,7 @@ class DashPlayer:
         self.alpha = config_dash.ALPHA_BUFFER_COUNT
         self.beta = config_dash.BETA_BUFFER_COUNT
         self.segment_limit = None
+        self.time_limit = None
         # Current video buffer that holds the segment data
         self.buffer = queue.Queue()
         self.buffer_lock = threading.Lock()
@@ -193,6 +194,11 @@ class DashPlayer:
                         self.buffer_length_lock.release()
                     if self.segment_limit:
                         if int(play_segment['segment_number']) >= self.segment_limit:
+                            self.set_state("STOP")
+                            config_dash.LOG.info("Stopped playback after segment {} at playtime {}".format(
+                                play_segment['segment_number'], self.playback_duration))
+                    if self.time_limit is not None:
+                        if self.playback_timer.time() >= self.time_limit:
                             self.set_state("STOP")
                             config_dash.LOG.info("Stopped playback after segment {} at playtime {}".format(
                                 play_segment['segment_number'], self.playback_duration))
