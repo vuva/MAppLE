@@ -95,7 +95,7 @@ func (p *path) setupReusePath(oliaSenders map[protocol.PathID]*congestion.OliaSe
 func (p *path) setup(oliaSenders map[protocol.PathID]*congestion.OliaSender, redundancyController fec.RedundancyController) {
 	p.rttStats = &congestion.RTTStats{}
 
-	var cong congestion.SendAlgorithm
+	var cong congestion.SendAlgorithmWithDebugInfo
 
 	cc := p.sess.GetConfig().CongestionControl
 	utils.Debugf("Start Congestion control: %d", cc)

@@ -3,8 +3,11 @@ package quic
 import (
 	//	"bytes"
 	//"github.com/lucas-clemente/quic-go/internal/protocol"
+	"fmt"
+
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/utils"
+
 	//"io"
 	"container/list"
 	"sync"
@@ -36,6 +39,11 @@ func StartMultiplexer(quic_sess Session) {
 			}
 			queue_font := queue.mess_list.Front()
 			message, _ := queue_font.Value.([]byte)
+
+			//VUVA: estimate delivary time
+			log_entry := fmt.Sprintf("%d %d",time.Now().UnixNano() , EstimateDelivery("cubic-reno", protocol.ByteCount(len(message)), quic_sess.GetPaths()))
+			utils.WriteToFile("estimation.log", log_entry)
+
 			go stream.Write(message)
 
 			queue.mutex.Lock()

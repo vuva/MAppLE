@@ -137,6 +137,8 @@ type Session interface {
 	RemoveStream(stream protocol.StreamID)
 
 	GetStreamMap() (*streamsMap, error)
+
+	GetPaths() map[protocol.PathID]*path
 }
 
 // A NonFWSession is a QUIC connection between two peers half-way through the handshake.

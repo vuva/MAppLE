@@ -1400,3 +1400,7 @@ func (s *session) MaybeSetLargestRcvdPacketNumber(p protocol.PacketNumber) {
 func (s *session) GetStreamMap() (*streamsMap, error) {
 	return s.streamsMap, nil
 }
+
+func (s *session) GetPaths() map[protocol.PathID]*path {
+	return  s.paths
+}
