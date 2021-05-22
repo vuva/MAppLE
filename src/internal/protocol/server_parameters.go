@@ -4,7 +4,10 @@ import "time"
 
 // MaxPacketSize is the maximum packet size that we use for sending packets.
 // It includes the QUIC packet header, but excludes the UDP and IP header.
-const MaxPacketSize ByteCount = 1200
+//const MaxPacketSize ByteCount = 1200
+// VUVA: don't know why it's 1200 by default. Maybe FEC things?? 
+// Change it to 1350
+const MaxPacketSize ByteCount = 1350
 
 // NonForwardSecurePacketSizeReduction is the number of bytes a non forward-secure packet has to be smaller than a forward-secure packet
 // This makes sure that those packets can always be retransmitted without splitting the contained StreamFrames
@@ -16,7 +19,9 @@ const NonForwardSecurePacketSizeReduction = 50
 const DefaultMaxCongestionWindow = 2500
 
 // InitialCongestionWindow is the initial congestion window in QUIC packets
-const InitialCongestionWindow = 32
+//const InitialCongestionWindow = 32
+// VUVA: Reduce initial congestion window
+const InitialCongestionWindow = 8
 
 // MaxUndecryptablePackets limits the number of undecryptable packets that a
 // session queues for later until it sends a public reset.
@@ -28,7 +33,9 @@ const PublicResetTimeout = 500 * time.Millisecond
 
 // AckSendDelay is the maximum delay that can be applied to an ACK for a retransmittable packet
 // This is the value Chromium is using
-const AckSendDelay = 25 * time.Millisecond
+//const AckSendDelay = 25 * time.Millisecond
+// VUVA: disable ACK_DELAY
+const AckSendDelay = 0 * time.Millisecond
 
 // ReceiveStreamFlowControlWindow is the stream-level flow control window for receiving data
 // This is the value that Google servers are using
@@ -48,11 +55,15 @@ const DefaultMaxReceiveConnectionFlowControlWindowServer = 1.5 * (1 << 20) // 1.
 
 // DefaultMaxReceiveStreamFlowControlWindowClient is the default maximum stream-level flow control window for receiving data, for the client
 // This is the value that Chromium is using
-const DefaultMaxReceiveStreamFlowControlWindowClient = 16 * (1 << 20) // 16 MB
+//const DefaultMaxReceiveStreamFlowControlWindowClient = 16 * (1 << 20) // 16 MB
+// VUVA: assume no limit in send windows
+const DefaultMaxReceiveStreamFlowControlWindowClient =  (1 << 28) // 256 MB
 
 // DefaultMaxReceiveConnectionFlowControlWindowClient is the default connection-level flow control window for receiving data, for the client
 // This is the value that Google servers are using
-const DefaultMaxReceiveConnectionFlowControlWindowClient = 24 * (1 << 20) // 24 MB
+//const DefaultMaxReceiveConnectionFlowControlWindowClient = 24 * (1 << 20) // 24 MB
+// VUVA: assume no limit in send windows
+const DefaultMaxReceiveConnectionFlowControlWindowClient = (1 << 29) // 512 MB
 
 // ConnectionFlowControlMultiplier determines how much larger the connection flow control windows needs to be relative to any stream's flow control window
 // This is the value that Chromium is using

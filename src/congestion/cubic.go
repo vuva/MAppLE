@@ -22,7 +22,8 @@ const cubeScale = 40
 const cubeCongestionWindowScale = 410
 const cubeFactor protocol.PacketNumber = 1 << cubeScale / cubeCongestionWindowScale
 
-const defaultNumConnections = 2
+//const defaultNumConnections = 2
+const defaultNumConnections = 1 // VUVA: change to 1 to reduce effective RenoBeta
 
 // Default Cubic backoff factor
 const beta float32 = 0.7

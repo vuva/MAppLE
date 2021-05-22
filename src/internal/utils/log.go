@@ -27,7 +27,12 @@ const (
 var (
 	logLevel   = LogLevelNothing
 	timeFormat = ""
+	logPerspective = ""
 )
+
+func SetLogPerspective(perspective string){
+	logPerspective=perspective
+}
 
 // SetLogLevel sets the log level
 func SetLogLevel(level LogLevel) {
@@ -92,4 +97,16 @@ func readLoggingEnv() {
 	default:
 		fmt.Fprintln(os.Stderr, "invalid quic-go log level, see https://github.com/lucas-clemente/quic-go/wiki/Logging")
 	}
+}
+
+func WriteToFile (file_name string, message string){
+	f, err := os.OpenFile(logPerspective + "_" + file_name,
+	os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Println(err)
+	}
+	defer f.Close()
+
+	logger := log.New(f, "",0)
+	logger.Println(message)
 }

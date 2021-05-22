@@ -51,6 +51,10 @@ type OliaSender struct {
 
 	initialCongestionWindow    protocol.PacketNumber
 	initialMaxCongestionWindow protocol.PacketNumber
+
+	// VUVA: RFC2861 CWND Validation
+	congestionWindowTimestamp time.Time
+	congestionWindowUsed protocol.PacketNumber
 }
 
 func NewOliaSender(oliaSenders map[protocol.PathID]*OliaSender, rttStats *RTTStats, initialCongestionWindow, initialMaxCongestionWindow protocol.PacketNumber) SendAlgorithmWithDebugInfo {
@@ -381,4 +385,17 @@ func (o *OliaSender) InRecovery() bool {
 
 func (o *OliaSender) InSlowStart() bool {
 	return o.GetCongestionWindow() < o.GetSlowStartThreshold()
+}
+
+func (o *OliaSender) Cnwd_restart_after_idle (delta time.Duration, rto time.Duration){
+	cwnd := o.congestionWindow
+	restart_cwnd := utils.MinPacketNumber(o.initialCongestionWindow, cwnd);
+
+	for (delta - rto > 0 && cwnd > restart_cwnd ){
+		cwnd>>=1
+		delta -= rto
+	}
+	o.congestionWindow = utils.MaxPacketNumber(cwnd, restart_cwnd)
+	o.congestionWindowTimestamp = time.Now()
+	o.congestionWindowUsed = 0
 }

@@ -22,6 +22,10 @@ type SendAlgorithm interface {
 
 	// Experiments
 	SetSlowStartLargeReduction(enabled bool)
+
+	//VUVA: RFC2861
+	Cnwd_restart_after_idle(delta time.Duration, rto time.Duration)
+
 }
 
 // SendAlgorithmWithDebugInfo adds some debug functions to SendAlgorithm

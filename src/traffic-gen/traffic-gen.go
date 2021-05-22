@@ -33,6 +33,8 @@ import (
 	prob "github.com/atgjack/prob"
 	quic "github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/fec"
+	"github.com/lucas-clemente/quic-go/logger"
+
 	// "github.com/lucas-clemente/quic-go/h2quic"
 	// "github.com/lucas-clemente/quic-go/internal/testdata"
 	// "github.com/lucas-clemente/quic-go/internal/protocol"
@@ -862,7 +864,7 @@ func main() {
 	flagCong := flag.String("cc", "cubic", "Congestion control")
 	flagBlock := flag.Bool("b", false, "Blocking call")
 	flagReverse := flag.Bool("r", false, "Reverse send")
-	flagFEC := flag.String("fec", "", "FEC Scheme name")
+	flagFEC := flag.String("fec", "nofec", "FEC Scheme name")
 
 	flagMultiplexer := flag.String("mplexer", "parallel", "Stream Multiplexer. Default: Parallel")
 
@@ -889,6 +891,7 @@ func main() {
 		FECScheme:         *flagFEC,
 		multiplexer:       *flagMultiplexer,
 	}
+	utils.SetLogPerspective(*flagMode)
 	if *flagDebug {
 		utils.SetLogLevel(utils.LogLevelDebug)
 		utils.SetLogTimeFormat(time.StampMilli)
@@ -899,10 +902,12 @@ func main() {
 	LOG_PREFIX = *flagLog
 	//quic.SetCongestionControl(*flagCong)
 	//sched := schedNameConvert(*flagProtocol, *flagSched)
+	logger.InitExperimentationLogger(*flagMode)
 	if strings.ToLower(*flagMode) == "server" {
 		//quic.SetSchedulerAlgorithm(sched)
 		startServerMode(&config)
 	} else {
 		startClientMode(&config)
 	}
+	logger.FlushExperimentationLogger()
 }

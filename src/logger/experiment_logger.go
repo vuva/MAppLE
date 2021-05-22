@@ -21,6 +21,7 @@ type experimentationLogger struct {
 	fecConfigLog  *bufio.Writer
 	packetLog     *bufio.Writer
 	cwndLog       *bufio.Writer
+	delayEstimatorLog *bufio.Writer
 }
 
 var experimentationLoggerSingleton *experimentationLogger = nil
@@ -42,6 +43,7 @@ func InitExperimentationLogger(prefix string) {
 	fecConfigFileWriter := newLogger("fecConfig", "source,repair,windowStep,timestamp", prefix)
 	packetFileWriter := newLogger("packet", "size,destination,fec,timestamp", prefix)
 	cwndFileWriter := newLogger("cwnd", "path,cwnd,free,timestamp", prefix)
+	estimatorFileWriter := newLogger("delay-estimator", "id, delay, timestamp", prefix)
 
 	experimentationLoggerSingleton = &experimentationLogger{
 		streamGapsLog: gapsFileWriter,
@@ -49,6 +51,7 @@ func InitExperimentationLogger(prefix string) {
 		fecConfigLog:  fecConfigFileWriter,
 		packetLog:     packetFileWriter,
 		cwndLog:       cwndFileWriter,
+		delayEstimatorLog: estimatorFileWriter,
 	}
 }
 
@@ -63,6 +66,7 @@ func FlushExperimentationLogger() {
 	experimentationLoggerSingleton.fecConfigLog.Flush()
 	experimentationLoggerSingleton.packetLog.Flush()
 	experimentationLoggerSingleton.cwndLog.Flush()
+	experimentationLoggerSingleton.delayEstimatorLog.Flush()
 	experimentationLoggerSingleton.lock.Unlock()
 }
 
@@ -133,5 +137,19 @@ func ExpLogInsertCwnd(path net.Addr, cwnd, free protocol.ByteCount) {
 
 	experimentationLoggerSingleton.lock.Lock()
 	experimentationLoggerSingleton.cwndLog.WriteString(line)
+	experimentationLoggerSingleton.lock.Unlock()
+}
+
+func ExpLogInsertDelayEstimation (messageID int, delay int) {
+	if experimentationLoggerSingleton == nil {
+		return
+	}
+
+	timestamp := time.Now().UnixNano()
+
+	line := fmt.Sprintf("%d,%d,%d\n", messageID, delay, timestamp)
+
+	experimentationLoggerSingleton.lock.Lock()
+	experimentationLoggerSingleton.delayEstimatorLog.WriteString(line)
 	experimentationLoggerSingleton.lock.Unlock()
 }

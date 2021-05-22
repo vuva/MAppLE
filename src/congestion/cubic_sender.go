@@ -3,6 +3,7 @@ package congestion
 import (
 	"log"
 	"time"
+	//"fmt"
 
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/utils"
@@ -59,6 +60,12 @@ type cubicSender struct {
 
 	initialCongestionWindow    protocol.PacketNumber
 	initialMaxCongestionWindow protocol.PacketNumber
+
+	// VUVA: RFC2861 CWND Validation
+	congestionWindowTimestamp time.Time
+	congestionWindowUsed protocol.PacketNumber
+
+
 }
 
 // NewCubicSender makes a new cubic sender
@@ -133,6 +140,7 @@ func (c *cubicSender) MaybeExitSlowStart() {
 }
 
 func (c *cubicSender) OnPacketAcked(ackedPacketNumber protocol.PacketNumber, ackedBytes protocol.ByteCount, bytesInFlight protocol.ByteCount) {
+	//utils.WriteToFile("cwnd.log",fmt.Sprintf("%d %d %d",time.Now().UnixNano(), ackedPacketNumber , c.congestionWindow))
 	c.largestAckedPacketNumber = utils.MaxPacketNumber(ackedPacketNumber, c.largestAckedPacketNumber)
 	if c.InRecovery() {
 		// PRR is used when in recovery.
@@ -301,4 +309,21 @@ func (c *cubicSender) RetransmissionDelay() time.Duration {
 
 func (c *cubicSender) SmoothedRTT() time.Duration {
 	return c.rttStats.SmoothedRTT()
+}
+
+func (c *cubicSender) Cnwd_restart_after_idle (delta time.Duration, rto time.Duration){
+	cwnd := c.congestionWindow
+	restart_cwnd := utils.MinPacketNumber(c.initialCongestionWindow, cwnd);
+
+	utils.Debugf("\nCnwd_restart_after_idle: old c.congestionWindow %d delta %d rto %d", c.congestionWindow, delta.Milliseconds(), rto.Milliseconds())
+
+	c.slowstartThreshold = utils.MaxPacketNumber(c.slowstartThreshold, cwnd*3/4)
+	for (delta - rto > 0 && cwnd > restart_cwnd ){
+		cwnd>>=1
+		delta -= rto
+	}
+	c.congestionWindow = utils.MaxPacketNumber(cwnd, restart_cwnd)
+	c.congestionWindowTimestamp = time.Now()
+	c.congestionWindowUsed = 0
+	utils.Debugf("\nCnwd_restart_after_idle: new c.congestionWindow %d", c.congestionWindow)
 }

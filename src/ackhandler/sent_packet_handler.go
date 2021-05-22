@@ -72,7 +72,7 @@ type sentPacketHandler struct {
 
 	bytesInFlight protocol.ByteCount
 
-	congestion congestion.SendAlgorithm
+	congestion congestion.SendAlgorithmWithDebugInfo
 	rttStats   *congestion.RTTStats
 
 	onRTOCallback func(time.Time) bool
@@ -114,14 +114,14 @@ type sentPacketHandler struct {
 // NewSentPacketHandler creates a new sentPacketHandler
 func NewSentPacketHandler(
 	rttStats *congestion.RTTStats,
-	cong congestion.SendAlgorithm,
+	cong congestion.SendAlgorithmWithDebugInfo,
 	onRTOCallback func(time.Time) bool,
 	onPacketLost func(protocol.PacketNumber),
 	onPacketAcked func(protocol.PacketNumber, bool),
 	useFastRetransmit bool,
 	pathID protocol.PathID) SentPacketHandler {
 
-	var congestionControl congestion.SendAlgorithm
+	var congestionControl congestion.SendAlgorithmWithDebugInfo
 
 	if cong != nil {
 		congestionControl = cong
@@ -130,7 +130,8 @@ func NewSentPacketHandler(
 		congestionControl = congestion.NewCubicSender(
 			congestion.DefaultClock{},
 			rttStats,
-			false, /* don't use reno since chromium doesn't (why?) */
+			true, //[> don't use reno since chromium doesn't (why?) <]
+			//p.sess.GetConfig().CongestionControl==protocol.CongestionControlCubicReno,
 			protocol.InitialCongestionWindow,
 			protocol.DefaultMaxCongestionWindow,
 		)
@@ -190,6 +191,13 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) error {
 
 	// Update some statistics
 	h.packets++
+
+	//VUVA: RFC2861 CWND Validation
+	delta := time.Since(h.lastSentTime)
+	rto:=  h.ComputeRTOTimeout()
+	if delta> rto{
+		h.congestion.Cnwd_restart_after_idle(delta,rto)
+	}
 
 	// XXX RTO and TLP are recomputed based on the possible last sent retransmission. Is it ok like this?
 	h.lastSentTime = now
@@ -731,6 +739,10 @@ func (h *sentPacketHandler) garbageCollectSkippedPackets() {
 	h.skippedPackets = h.skippedPackets[deleteIndex:]
 }
 
-func (h *sentPacketHandler) GetSendAlgorithm() congestion.SendAlgorithm {
+func (h *sentPacketHandler) GetSendAlgorithm() congestion.SendAlgorithmWithDebugInfo {
 	return h.congestion
+}
+
+func (h *sentPacketHandler) GetLastSendTime() time.Time{
+	return h.lastSentTime
 }
